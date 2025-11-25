@@ -100,6 +100,7 @@ if __name__ == "__main__":
 
     # load input permutations
     input_permutations = np.load("mnist_permutations.npy")
+    target_task = 0
 
     # get activations of one model of multiple tasks
     mtypes = ["c", "b", "c_tro", "b_tro"]
@@ -129,11 +130,12 @@ if __name__ == "__main__":
 
             act_loaded = get_activations_for_model(
                 model_loaded,
-                task_id=t,
+                model_at_task=t,
                 block=0,
+                target_task=target_task,
                 input_permutations=input_permutations,
-                device=DEVICE,
                 sub_loaders=sub_loaders,
+                device=DEVICE,
             )
 
             for entry in act_loaded:

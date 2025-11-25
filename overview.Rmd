@@ -265,6 +265,10 @@ plt.show()
 ### Analysis
 
 ```{python}
+train_loader , test_loader = init_dataloader_mnist(BATCH, shuffle=True)
+```
+
+```{python}
 labels = [4, 7]
 num_samples_per_label = 15
 
@@ -278,7 +282,7 @@ print('sub loaders contain:', {key: len(sub_loaders[key].dataset) for key in sub
 ```{python}
 # load input permutations
 input_permutations = np.load('mnist_permutations_0.npy')
-
+target_task = 0
 # get activations of one model of multiple tasks
 mtypes = ['c', 'b', 'c_tro', 'b_tro']
 
@@ -309,11 +313,12 @@ for m_type in mtypes:
 
         act_loaded = get_activations_for_model(
             model_loaded,
-            task_id=t,
+            model_at_task=t,
             block=0,
+            target_task=target_task,
             input_permutations=input_permutations,
-            device=DEVICE,
             sub_loaders=sub_loaders,
+            device=DEVICE,
         )
 
         for entry in act_loaded:

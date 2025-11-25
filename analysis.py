@@ -22,7 +22,7 @@ def get_activation(name):
     return hook
 
 
-def get_activations_for_model(model, task_id, block, input_permutations, device, sub_loaders):
+def get_activations_for_model(model, model_at_task, block, target_task, input_permutations, sub_loaders, device):
     # register hook to capture activations from first hidden layer
     # get activations from all hidden layers
     activations_from_layers = []
@@ -30,11 +30,11 @@ def get_activations_for_model(model, task_id, block, input_permutations, device,
     layers_idxs = np.arange(len(model.h_fcs) + 1)
 
     for hl_idx in layers_idxs:
-        id = get_act_id(task_id, block, hl_idx)
+        id = get_act_id(model_at_task, block, hl_idx)
         # print("hook: ", id)
         if hl_idx == len(layers_idxs) - 1:
             if model.use_task_ro:
-                model.fc_outs[task_id].register_forward_hook(get_activation(id))
+                model.fc_outs[model_at_task].register_forward_hook(get_activation(id))
             else:
                 model.fc_outs[0].register_forward_hook(get_activation(id))
 
@@ -47,15 +47,15 @@ def get_activations_for_model(model, task_id, block, input_permutations, device,
             images = images.to(device)
             B = images.size(0)
             x = images.view(B, -1)
-            x = x[:, input_permutations[task_id]]
-            _ = model(x, task_id=task_id)
+            x = x[:, input_permutations[target_task]]
+            _ = model(x, task_id=target_task)
         # store activations
         for hl_idx in layers_idxs:
-            id = get_act_id(task_id, block, hl_idx)
+            id = get_act_id(model_at_task, block, hl_idx)
             activations_from_layers.append(
                 {
                     "label": label,
-                    "task_id": task_id,
+                    "task_id": model_at_task,
                     "block": block,
                     "layer": hl_idx,
                     "activations": ACTIVATIONS.get(id, torch.tensor([])),
