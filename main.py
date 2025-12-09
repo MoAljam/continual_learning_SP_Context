@@ -16,6 +16,8 @@ from models import MLP_SP
 from train import *
 from analysis import *
 
+PLOTS_DIR = "./plots"
+
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
 # data
 BATCH = 128
@@ -59,6 +61,8 @@ def add_boundary_lines(axs, B, T, E):
 
 
 if __name__ == "__main__":
+    os.makedirs(PLOTS_DIR, exist_ok=True)
+
     # partial class constroctor for models
     MLP_SP_exp = partial(
         MLP_SP,
@@ -142,6 +146,8 @@ if __name__ == "__main__":
     add_boundary_lines(axs, BLOCKS, N_TASKS, EPOCHS_PER_TASK)
 
     plt.tight_layout()
+    if PLOTS_DIR:
+        plt.savefig(os.path.join(PLOTS_DIR, "cl_performance_task_0.png"))
     plt.show()
 
     # plot results: loss and accuracy on current task to ensure the models are learning properly on the new tasks
@@ -169,4 +175,6 @@ if __name__ == "__main__":
     h, l = axs[0].get_legend_handles_labels()
     fig.legend(h, l, loc="upper center", ncol=4, fontsize="small", frameon=False, bbox_to_anchor=(0.5, 1.1))
     plt.tight_layout()
+    if PLOTS_DIR:
+        plt.savefig(os.path.join(PLOTS_DIR, "cl_performance_task_curr.png"))
     plt.show()

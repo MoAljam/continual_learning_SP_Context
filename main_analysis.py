@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 from models import MLP_SP
 from train import *
 from analysis import *
-from Cheung_2019 import (
+from main import (
     DEVICE,
     IN_DIM,
     OUT_DIM,
@@ -28,6 +28,8 @@ from Cheung_2019 import (
     SEED,
     CONTEXT_LAYERS_MASK,
 )
+
+PLOTS_DIR = "./plots"
 
 
 def compute_rdm(activations):
@@ -83,30 +85,16 @@ def rsa_between_models(acts_df, m1, m2, at_task, layers_idxs):
     return scores
 
 
-if __name__ == "__main__":
-    # load MNIST
-    train_loader, test_loader = init_dataloader_mnist(batch_size=128, shuffle=True)
-
-    labels = [4, 7]
-    num_samples_per_label = 15
-
-    sub_loaders = {
-        labels[i]: get_subset_of_labels_loader(
-            train_loader, allowed_labels=[labels[i]], n_samples_per_label=num_samples_per_label
-        )
-        for i in range(len(labels))
-    }
-    print("sub loaders contain:", {key: len(sub_loaders[key].dataset) for key in sub_loaders})
-
-    # load input permutations
-    input_permutations = np.load("mnist_permutations.npy")
-    target_task = 0
-
-    # get activations of one model of multiple tasks
-    mtypes = ["c", "b", "c_tro", "b_tro"]
-
+def collect_activations_for_models(
+    mtypes,
+    target_task,
+    sub_loaders,
+    input_permutations,
+    eval_loader=None,
+):
     rows = []  # rows for DF
     print("loodind models and extracting activations: ")
+    models_loaded = {}
     for m_type in mtypes:
         use_context = True if (m_type == "c" or m_type == "c_tro") else False
         use_task_ro = True if (m_type == "c_tro" or m_type == "b_tro") else False
@@ -150,18 +138,55 @@ if __name__ == "__main__":
                     }
                 )
 
-            acc = evaluate(
-                model_loaded,
-                test_loader,
-                0,
-                input_permutations[0],
-                device=DEVICE,
-            )
-            print(f"Model type: {m_type}, Task {t}, Accuracy on test set task 0: {acc:.4f}")
-        print("-" * 50)
+            models_loaded[(m_type, t)] = model_loaded
+            if eval_loader is not None:
+                acc = evaluate(
+                    model_loaded,
+                    eval_loader,
+                    0,
+                    input_permutations[0],
+                    device=DEVICE,
+                )
+                print(f"Model type: {m_type}, Task {t}, Accuracy on test set task 0: {acc:.4f}")
+                print("-" * 80)
 
     acts_df = pd.DataFrame(rows)
+    return acts_df, models_loaded
 
+
+if __name__ == "__main__":
+    os.makedirs(PLOTS_DIR, exist_ok=True)
+
+    # load MNIST
+    train_loader, test_loader = init_dataloader_mnist(batch_size=128, shuffle=True)
+
+    labels = [4, 7]
+    num_samples_per_label = 15
+
+    sub_loaders = {
+        labels[i]: get_subset_of_labels_loader(
+            train_loader, allowed_labels=[labels[i]], n_samples_per_label=num_samples_per_label
+        )
+        for i in range(len(labels))
+    }
+    print("sub loaders contain:", {key: len(sub_loaders[key].dataset) for key in sub_loaders})
+
+    # load input permutations
+    input_permutations = np.load("mnist_permutations.npy")
+    target_task = 0
+
+    # get activations of one model of multiple tasks
+    mtypes = ["c", "b", "c_tro", "b_tro"]
+
+    acts_df, loaded_models = collect_activations_for_models(
+        mtypes,
+        target_task,
+        sub_loaders,
+        input_permutations,
+        # eval_loader=test_loader,
+        eval_loader=None,
+    )
+    model_loaded = loaded_models[("c", SAVE_ON_TASKS[-1])]
     print("DataFrame shape:", acts_df.shape)
     print(acts_df.columns)
 
@@ -219,12 +244,32 @@ if __name__ == "__main__":
         )
 
         plt.tight_layout()
-        plt.show()
+        if PLOTS_DIR:
+            plt.savefig(os.path.join(PLOTS_DIR, f"representational_shift_layer_{layer_to_analyze}.png"))
+        plt.show(block=False)
 
     # RSA analysis between context and baseline models at a specific task
     mtypes = ["c", "b", "c_tro", "b_tro"]
+    labels = np.arange(OUT_DIM)
+    num_samples_per_label = 5
 
-    at_task = 5
+    sub_loaders = {
+        labels[i]: get_subset_of_labels_loader(
+            train_loader, allowed_labels=[labels[i]], n_samples_per_label=num_samples_per_label
+        )
+        for i in range(len(labels))
+    }
+    print("sub loaders contain:", {key: len(sub_loaders[key].dataset) for key in sub_loaders})
+
+    acts_df, loaded_models = collect_activations_for_models(
+        mtypes,
+        target_task,
+        sub_loaders,
+        input_permutations,
+        # eval_loader=test_loader,
+        eval_loader=None,
+    )
+    at_task = 9
     layers_idxs = np.arange(len(model_loaded.h_fcs) + 1)
 
     rsa_scores_cb = []
@@ -255,6 +300,17 @@ if __name__ == "__main__":
     fig, axs = plt.subplots(2, num_layers, figsize=(5 * num_layers, 10))
     fig.suptitle(f"RDMs of Context and Baseline Models | Task {at_task}", fontsize=16)
 
+    # for layer_idx in layers_idxs:
+    #     rdm_c = rdms[layer_idx]["context"]
+    #     rdm_b = rdms[layer_idx]["baseline"]
+
+    #     ax_1, ax_2 = axs[0, layer_idx], axs[1, layer_idx]
+    #     im1 = ax_1.imshow(rdm_c, cmap="viridis")
+    #     ax_1.set_title(f"Layer {layer_idx} - Context Model")
+    #     plt.colorbar(im1, ax=ax_1, fraction=0.046, pad=0.04)
+    #     im2 = ax_2.imshow(rdm_b, cmap="viridis")
+    #     ax_2.set_title(f"Layer {layer_idx} - Baseline Model")
+    #     plt.colorbar(im2, ax=ax_2, fraction=0.046, pad=0.04)
     for layer_idx in layers_idxs:
         rdm_c = rdms[layer_idx]["context"]
         rdm_b = rdms[layer_idx]["baseline"]
@@ -267,8 +323,22 @@ if __name__ == "__main__":
         ax_2.set_title(f"Layer {layer_idx} - Baseline Model")
         plt.colorbar(im2, ax=ax_2, fraction=0.046, pad=0.04)
 
+        ticks_positions = (
+            np.arange(0, len(labels) * num_samples_per_label, num_samples_per_label) + (num_samples_per_label - 1) / 2
+        )
+        ticks_labels = [str(label) for label in labels]
+        # ticks for highlighting same labels
+        for ax in [ax_1, ax_2]:
+            ax.set_xticks(ticks_positions)
+            ax.set_xticklabels(ticks_labels)
+            ax.set_yticks(ticks_positions)
+            ax.set_yticklabels(ticks_labels)
+            ax.tick_params(axis="x", rotation=90)
+
     plt.tight_layout()
-    plt.show()
+    if PLOTS_DIR:
+        plt.savefig(os.path.join(PLOTS_DIR, f"rdms_task_{at_task}.png"))
+    plt.show(block=False)
 
     # plot the RSA similarity across layers
     plt.figure(figsize=(6, 4))
@@ -277,19 +347,69 @@ if __name__ == "__main__":
     plt.ylabel("RDM correlation (Context vs Baseline)")
     plt.title(f"RSA: Context vs Baseline across layers | Task {at_task} ")
     plt.grid(True)
-    plt.show()
+    plt.tight_layout()
+    if PLOTS_DIR:
+        plt.savefig(os.path.join(PLOTS_DIR, f"rsa_context_vs_baseline_task_{at_task}.png"))
+    plt.show(block=False)
 
     # with and without task-specific readout
     layers_idxs = np.arange(len(model_loaded.h_fcs) + 1)
-    rsa_cb = rsa_between_models(acts_df, "c", "b", at_task, layers_idxs)
-    rsa_cb_tro = rsa_between_models(acts_df, "c_tro", "b_tro", at_task, layers_idxs)
+    rsa_cb_0 = rsa_between_models(acts_df, "c", "b", 0, layers_idxs)
+    rsa_cb_tro_0 = rsa_between_models(acts_df, "c_tro", "b_tro", 0, layers_idxs)
+    # rsa_cb_5 = rsa_between_models(acts_df, "c", "b", 5, layers_idxs)
+    # rsa_cb_tro_5 = rsa_between_models(acts_df, "c_tro", "b_tro", 5, layers_idxs)
+    rsa_cb_9 = rsa_between_models(acts_df, "c", "b", 9, layers_idxs)
+    rsa_cb_tro_9 = rsa_between_models(acts_df, "c_tro", "b_tro", 9, layers_idxs)
 
-    plt.figure(figsize=(6, 4))
-    plt.plot(layers_idxs, rsa_cb, marker="o", label="Context vs Baseline")
-    plt.plot(layers_idxs, rsa_cb_tro, marker="s", label="Context TRO vs Baseline TRO")
-    plt.xlabel("Layer index")
-    plt.ylabel("RDM correlation")
-    plt.title(f"RSA across layers | Task {at_task} ")
-    plt.legend()
-    plt.grid(True)
-    plt.show()
+    fig, axs = plt.subplots(1, 2, figsize=(12, 5))
+    fig.suptitle("RSA between Context and Baseline Models across Layers", fontsize=16)
+    axs = axs.flatten()
+
+    # plt.plot(layers_idxs, rsa_cb_5, marker="o", label="Context vs Baseline")
+    # plt.plot(layers_idxs, rsa_cb_tro_5, marker="s", label="Context TRO vs Baseline TRO")
+    # plt.xlabel("Layer index")
+    # plt.ylabel("RDM correlation")
+    # plt.title(f"RSA across layers | Task {at_task} ")
+    # plt.legend()
+    # plt.grid(True)
+    # plt.tight_layout()
+    # if PLOTS_DIR:
+    #     plt.savefig(os.path.join(PLOTS_DIR, f"rsa_comparison_task_{at_task}.png"))
+    # plt.show(block=False)
+
+    def plot_rsa_comparison(layers, rsa1, rsa2, task_id, ax):
+        # as line plot
+        # ax.plot(layers, rsa1, marker="o", label="Context vs Baseline")
+        # ax.plot(layers, rsa2, marker="s", label="Context TRO vs Baseline TRO")
+        # ax.set_xlabel("Layer index")
+        # ax.set_ylabel("RDM correlation")
+        # ax.set_title(f"Task {task_id} ")
+        # # ax.set_ylim([-0.1, 1.0])
+        # ax.grid(True)
+        # as bar plot
+        width = 0.35
+        ax.bar(layers - width / 2, rsa1, width=width, label="Context vs Baseline")
+        ax.bar(layers + width / 2, rsa2, width=width, label="Context TRO vs Baseline TRO")
+        ax.set_xlabel("Layer index")
+        ax.set_ylabel("RDM correlation")
+        ax.set_title(f"Task {task_id} ")
+        # ax.set_ylim([-0.1, 1.0])
+        ax.grid(True)
+
+    plot_rsa_comparison(layers_idxs, rsa_cb_0, rsa_cb_tro_0, 0, axs[0])
+    plot_rsa_comparison(layers_idxs, rsa_cb_9, rsa_cb_tro_9, 9, axs[1])
+
+    h, l = axs[0].get_legend_handles_labels()
+    fig.legend(
+        h,
+        l,
+        loc="upper center",
+        ncol=2,
+        fontsize="small",
+        frameon=False,
+        bbox_to_anchor=(0.5, 0.95),
+    )
+    fig.tight_layout()
+    if PLOTS_DIR:
+        fig.savefig(os.path.join(PLOTS_DIR, f"rsa_comparison_tasks_0_5_9.png"))
+    plt.show(block=False)
