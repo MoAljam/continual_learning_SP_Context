@@ -7,10 +7,10 @@ ref:
 replication results with slight modifications / variations to the original implementation and analysis:
 
 ### Performance of superposition model on sequentially learned tasks:
-[![Superposition Performance](./plots/cl_performance_task_0.png)](./plots/cl_performance_task_0.png)
+[![Superposition Performance task 0](./plots/cl_performance_task_0.png)](./plots/cl_performance_task_0.png)
 
 #### control for accuracy on current task (learning is continued):
-[![Continued Learning Performance](./plots/cl_performance_task_0_control.png)](./plots/cl_performance_task_curr.png)
+[![Continued Learning Performance task curr](./plots/cl_performance_task_curr.png)](./plots/cl_performance_task_curr.png)
 
 ### representational shift analysis:
 [![Representational Shift l0](./plots/representational_shift_layer_0.png)](./plots/representational_shift_layer_0.png)
