@@ -17,8 +17,17 @@ replication results with slight modifications / variations to the original imple
 [![Representational Shift l1](./plots/representational_shift_layer_1.png)](./plots/representational_shift_layer_1.png)
 [![Representational Shift l2](./plots/representational_shift_layer_2.png)](./plots/representational_shift_layer_2.png)
 
-
-### RDMs on later task over layers:
+### RDMs on early and later tasks over layers:
+[![RSA RDMs](./plots/rdms_task_0.png)](./plots/rdms_task_0.png)
 [![RSA RDMs](./plots/rdms_task_9.png)](./plots/rdms_task_9.png)
 ### RSA between context and baseline models:
-[![RSA comparision](./plots/rsa_comparison_tasks_0_5_9.png)](./plots/rsa_comparison_tasks_0_5_9.png)
+[![RSA comparision](./plots/rsa_context_vs_baseline_task_9.png)](./plots/rsa_comparison_tasks_0_5_9.png)   
+
+### conntext specificity:
+[![cross-accuracy matrix](./plots/acc_matrix_c_task_9.png)](./plots/acc_matrix_c_task_9.png)   
+
+### simple context ablation analysis:
+[![context ablation analysis](./plots/context_ablation_loo_loi_c.png)](./plots/context_ablation_loo_loi_c.png)
+
+
+

@@ -1,4 +1,5 @@
 import os
+import json
 from functools import partial
 
 import torch
@@ -24,14 +25,16 @@ BATCH = 128
 
 # experiment
 N_TASKS = 10
-BLOCKS = 1
+BLOCKS = 2
 EPOCHS_PER_TASK = 1
 
 # models
 IN_DIM = 28 * 28
 OUT_DIM = 10
-HL_DIMS = [128, 128]
-CONTEXT_LAYERS_MASK = [1, 1, 1]  # first entrie is for input context
+HL_DIMS = [128, 64, 64]
+CONTEXT_LAYERS_MASK = [1, 1, 1, 1]  # first entrie is for input context
+# HL_DIMS = [128, 128]
+# CONTEXT_LAYERS_MASK = [1, 1, 1]  # first entrie is for input context
 
 # training
 LR = 1e-3
@@ -50,28 +53,39 @@ if torch.cuda.is_available():
     torch.cuda.manual_seed_all(SEED)
 
 
-def add_boundary_lines(axs, B, T, E):
-    task_lines = np.arange(0, B * T * E + 1, E)[1:-1]
-    block_lines = np.arange(0, B * T * E + 1, T * E)[1:-1]
-    for ax in axs:
-        for epoch in task_lines:
-            ax.axvline(x=epoch, color="gray", linestyle="--", linewidth=1, alpha=0.2)
-        for epoch in block_lines:
-            ax.axvline(x=epoch, color="black", linestyle="--", linewidth=2, alpha=0.4)
+def save_results(trace, filename):
+    global CHECKPOINT_DIR
+    os.makedirs(CHECKPOINT_DIR, exist_ok=True)
+    filename = os.path.join(CHECKPOINT_DIR, filename)
+    with open(filename, "w") as f:
+        json.dump(trace, f)
+    return filename
 
 
 if __name__ == "__main__":
+    eval_on_tasks = list(range(N_TASKS))  # which tasks to eval on during training
+
     os.makedirs(PLOTS_DIR, exist_ok=True)
+    config = {
+        "input_dim": IN_DIM,
+        "output_dim": OUT_DIM,
+        "hl_dims": HL_DIMS,
+        "n_tasks": N_TASKS,
+        "device": str(DEVICE),
+        "context_layers_mask": CONTEXT_LAYERS_MASK,
+    }
+    metadata = {
+        "batch_size": BATCH,
+        "epochs_per_task": EPOCHS_PER_TASK,
+        "blocks": BLOCKS,
+        "lr": LR,
+        "seed": SEED,
+    }
 
     # partial class constroctor for models
     MLP_SP_exp = partial(
         MLP_SP,
-        input_dim=IN_DIM,
-        output_dim=OUT_DIM,
-        hl_dims=HL_DIMS,
-        num_tasks=N_TASKS,
-        device=DEVICE,
-        context_layers_mask=CONTEXT_LAYERS_MASK,
+        **config,
     )
 
     # criterion
@@ -105,76 +119,66 @@ if __name__ == "__main__":
         device=DEVICE,
         save_on_tasks=SAVE_ON_TASKS,
         save_dir=CHECKPOINT_DIR,
+        eval_on_tasks=eval_on_tasks,
     )
     # run for baseline model
     model_baseline = MLP_SP_exp(use_context=False, use_task_ro=False)
     optimizer = optim.Adam(model_baseline.parameters(), lr=LR)
     trace_baseline = run_experiment(model_baseline, optimizer)
+    trace_baseline["metadata"] = {
+        "model_type": "baseline",
+        **metadata,
+    }
+    trace_baseline["model_config"] = {
+        **config,
+        "use_context": False,
+        "use_task_ro": False,
+    }
+
+    c_m_str = "_".join([str(n) for n in CONTEXT_LAYERS_MASK])
+    save_results(trace_baseline, f"trace_b_cm_{c_m_str}.json")
 
     # run for context model
     model_context = MLP_SP_exp(use_context=True, use_task_ro=False)
     optimizer = optim.Adam(model_context.parameters(), lr=LR)
     trace_contex = run_experiment(model_context, optimizer)
+    trace_contex["metadata"] = {
+        "model_type": "context",
+        **metadata,
+    }
+    trace_contex["model_config"] = {
+        **config,
+        "use_context": True,
+        "use_task_ro": False,
+    }
+    save_results(trace_contex, f"trace_c_cm_{c_m_str}.json")
 
     # run for baseline model with task-specific readout
     model_baseline_tro = MLP_SP_exp(use_context=False, use_task_ro=True)
     optimizer = optim.Adam(model_baseline_tro.parameters(), lr=LR)
     trace_baseline_tro = run_experiment(model_baseline_tro, optimizer)
+    trace_baseline_tro["metadata"] = {
+        "model_type": "baseline_tro",
+        **metadata,
+    }
+    trace_baseline_tro["model_config"] = {
+        **config,
+        "use_context": False,
+        "use_task_ro": True,
+    }
+    save_results(trace_baseline_tro, f"trace_b_tro_cm_{c_m_str}.json")
 
     # run for context model with task-specific readout
     model_context_tro = MLP_SP_exp(use_context=True, use_task_ro=True)
     optimizer = optim.Adam(model_context_tro.parameters(), lr=LR)
     trace_contex_tro = run_experiment(model_context_tro, optimizer)
-
-    # region plotting
-    # plot results: accuracy on task 0
-    fig, axs = plt.subplots(1, 2, figsize=(10, 4))
-    axs = axs.flatten()
-
-    plot_task_accuracies(trace_contex["accuracy_task_0"], "Context Model", step=EPOCHS_PER_TASK, ax=axs[0])
-    plot_task_accuracies(trace_baseline["accuracy_task_0"], "Baseline Model", step=EPOCHS_PER_TASK, ax=axs[0])
-
-    plot_task_accuracies(trace_contex_tro["accuracy_task_0"], "Context Model TRO", step=EPOCHS_PER_TASK, ax=axs[1])
-    plot_task_accuracies(trace_baseline_tro["accuracy_task_0"], "Baseline Model TRO", step=EPOCHS_PER_TASK, ax=axs[1])
-
-    axs[0].set_title("CL: (Task 0) same readout")
-    axs[1].set_title("CL: (Task 0) task-specific readout")
-
-    axs[0].legend()
-    axs[1].legend()
-
-    add_boundary_lines(axs, BLOCKS, N_TASKS, EPOCHS_PER_TASK)
-
-    plt.tight_layout()
-    if PLOTS_DIR:
-        plt.savefig(os.path.join(PLOTS_DIR, "cl_performance_task_0.png"))
-    plt.show()
-
-    # plot results: loss and accuracy on current task to ensure the models are learning properly on the new tasks
-    fig, axs = plt.subplots(1, 2, figsize=(10, 4))
-    axs = axs.flatten()
-
-    plot_task_accuracies(trace_contex["accuracy_task_curr"], "Context Model", step=EPOCHS_PER_TASK, ax=axs[0])
-    plot_task_accuracies(
-        trace_baseline_tro["accuracy_task_curr"], "Baseline Model TRO", step=EPOCHS_PER_TASK, ax=axs[0]
-    )
-    plot_task_accuracies(trace_contex_tro["accuracy_task_curr"], "Context Model TRO", step=EPOCHS_PER_TASK, ax=axs[0])
-    plot_task_accuracies(trace_baseline["accuracy_task_curr"], "Baseline Model", step=EPOCHS_PER_TASK, ax=axs[0])
-
-    plot_training_loss(trace_contex["loss"], "Context Model", ax=axs[1])
-    plot_training_loss(trace_contex_tro["loss"], "Context Model TRO", ax=axs[1])
-    plot_training_loss(trace_baseline["loss"], "Baseline Model", ax=axs[1])
-    plot_training_loss(trace_baseline_tro["loss"], "Baseline Model TRO", ax=axs[1])
-
-    axs[0].set_title("CL: (current task)")
-    axs[1].set_title("Training loss")
-
-    # add vertical lines at block and task boundaries
-    add_boundary_lines(axs, BLOCKS, N_TASKS, EPOCHS_PER_TASK)
-
-    h, l = axs[0].get_legend_handles_labels()
-    fig.legend(h, l, loc="upper center", ncol=4, fontsize="small", frameon=False, bbox_to_anchor=(0.5, 1.1))
-    plt.tight_layout()
-    if PLOTS_DIR:
-        plt.savefig(os.path.join(PLOTS_DIR, "cl_performance_task_curr.png"))
-    plt.show()
+    trace_contex_tro["metadata"] = {
+        "model_type": "context_tro",
+        **config,
+    }
+    trace_contex_tro["model_config"] = {
+        **config,
+        "use_context": True,
+        "use_task_ro": True,
+    }
+    save_results(trace_contex_tro, f"trace_c_tro_cm_{c_m_str}.json")

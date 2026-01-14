@@ -86,12 +86,15 @@ def train_one_epoch(model, optimizer, criterion, train_loader, task_id, perm, de
     return epoch_loss
 
 
-def evaluate(model, test_loader, task_id, perm, device):
+@torch.no_grad()
+def evaluate(model, test_loader, task_id, perm, device, ro_id=None, max_batches=None):
     model.eval()
     correct = 0
     total = 0
     with torch.no_grad():
-        for images, labels in test_loader:
+        for b_idx, (images, labels) in enumerate(test_loader):
+            if max_batches is not None and b_idx >= max_batches:
+                break
             x = images.to(device)
             y = labels.to(device)
             B = images.size(0)
@@ -100,7 +103,7 @@ def evaluate(model, test_loader, task_id, perm, device):
             x = x.view(B, -1)
             x = x[:, perm]
 
-            logits = model(x, task_id=task_id)
+            logits = model(x, task_id=task_id, ro_id=ro_id)
             _, predicted = torch.max(logits.data, 1)
 
             total += y.size(0)
@@ -123,17 +126,22 @@ def run_experiment(
     epochs_per_task: int,
     device,
     save_dir="./models_checkpoints",
+    eval_on_tasks: list[int] = [0],
 ):
 
+    # NOTE not good but quick lazy way
     trace = {
         "loss": [],
-        "accuracy_task_0": [],
-        "accuracy_task_curr": [],
+        "training_on_task": [],
+        "accuracy_task_curr": [],  # very redundant
+        **{f"accuracy_task_{t_id}": [] for t_id in eval_on_tasks},
     }
 
     model_type = "c" if model.use_context else "b"
     model_type += "_tro" if model.use_task_ro else ""
     os.makedirs(save_dir, exist_ok=True)
+
+    c_m_mask = "_".join([str(n) for n in model.context_layers_mask])
 
     total_epochs = epochs_per_task * n_tasks * blocks
     pbar = tqdm(
@@ -155,7 +163,7 @@ def run_experiment(
 
                 avg_loss = epoch_loss / len(train_loader)
                 trace["loss"].append(avg_loss)
-
+                trace["training_on_task"].append(task_id)
                 pbar.set_postfix(
                     Loss=f"{avg_loss:.4f}",
                     B=f"{block+1}/{blocks}",
@@ -166,21 +174,25 @@ def run_experiment(
 
             if task_id in save_on_tasks:
                 # save model (checkpoint)
-                model_path = os.path.join(save_dir, f"model_{model_type}_task_{task_id}_block_{block}.pth")
+                model_path = os.path.join(
+                    save_dir, f"model_{model_type}_task_{task_id}_block_{block}_cm_{c_m_mask}.pth"
+                )
                 torch.save(model.state_dict(), model_path)
                 tqdm.write(f"(checkpoint) model saved at {model_path}")
 
             # eval on both original and current task
-            accuracy_0 = evaluate(model, test_loader, task_id=0, perm=input_permutations[0], device=device)
+            # NOTE redundant
             accuracy_curr_task = evaluate(
                 model, test_loader, task_id=task_id, perm=input_permutations[task_id], device=device
             )
-            trace["accuracy_task_0"].append(accuracy_0)
             trace["accuracy_task_curr"].append(accuracy_curr_task)
+            tqdm.write(f"current task ({task_id}) acc: {accuracy_curr_task*100:.2f}% (Block {block})")
 
-            tqdm.write(
-                f"Acc Task 0: {accuracy_0*100:.2f}%, Acc Task current: {accuracy_curr_task*100:.2f}% (Block {block}, Task {task_id})"
-            )
+            for t_id in eval_on_tasks:
+                accuracy = evaluate(model, test_loader, task_id=t_id, perm=input_permutations[t_id], device=device)
+                trace[f"accuracy_task_{t_id}"].append(accuracy)
+                tqdm.write(f"Task {t_id} acc: {accuracy*100:.2f}% (Block {block}, Task {task_id})")
+
     pbar.close()
 
     return trace
